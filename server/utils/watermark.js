@@ -61,28 +61,39 @@ function makeSvg(width, height, text, color = '#ffffff', opacity = 0.18, size = 
 export async function watermarkBuffer(inputBuffer, text = process.env.APP_WATERMARK || 'MarkLight') {
   const img = sharp(inputBuffer).rotate();
   const meta = await img.metadata();
-  // Determine watermark color
+  // Determine watermark color and opacity for better contrast
   const bgIsWhite = await isImageBackgroundWhite(inputBuffer);
-  const color = bgIsWhite ? '#888888' : '#ffffff'; // gray if white bg, else white
-  const svg = makeSvg(meta.width || 1200, meta.height || 800, text, color);
+  let color, opacity;
+  if (bgIsWhite) {
+    color = '#222222'; // much darker for white bg
+    opacity = 0.22;
+  } else {
+    color = '#f5f5f5'; // much lighter for dark bg
+    opacity = 0.28;
+  }
+  const svg = makeSvg(meta.width || 1200, meta.height || 800, text, color, opacity);
   return await img
     .composite([{ input: svg }])
     .jpeg({ quality: 90 })
     .toBuffer();
 }
 
-export async function addWatermark(filePath, text = process.env.APP_WATERMARK || 'MarkLight') {
+export async function addWatermark(filePath, text = process.env.APP_WATERMARK || 'MarkLight', overwrite = false) {
   const fs = await import('fs/promises');
   const path = await import('path');
   const input = await sharp(filePath).toBuffer();
   const output = await watermarkBuffer(input, text);
-  // Always write to a new file with a unique name
   const ext = path.extname(filePath) || '.jpg';
-  const base = path.basename(filePath, ext);
-  const dir = path.dirname(filePath);
-  const newFile = path.join(dir, `${base}-wm_${Date.now()}${ext}`);
-  await sharp(output).toFile(newFile);
-  return newFile;
+  if (overwrite) {
+    await sharp(output).toFile(filePath);
+    return filePath;
+  } else {
+    const base = path.basename(filePath, ext);
+    const dir = path.dirname(filePath);
+    const newFile = path.join(dir, `${base}-wm_${Date.now()}${ext}`);
+    await sharp(output).toFile(newFile);
+    return newFile;
+  }
 }
 
 export async function addWatermarkToMany(paths, text) {
