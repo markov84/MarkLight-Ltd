@@ -4,7 +4,78 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import cookieParser from 'cookie-parser';
+import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 const router = express.Router();
+// Forgot password endpoint
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ msg: 'Email is required' });
+  }
+  try {
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(404).json({ msg: 'No user with this email' });
+    }
+    // Generate token
+    const token = crypto.randomBytes(32).toString('hex');
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = Date.now() + 1000 * 60 * 60; // 1 hour
+    await user.save();
+
+    // Send email (example with nodemailer, configure for production)
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${token}`;
+      await transporter.sendMail({
+        from: process.env.COMPANY_EMAIL || process.env.SMTP_USER,
+        to: user.email,
+        subject: 'Reset your password',
+        html: `<p>Click <a href="${resetUrl}">here</a> to reset your password. This link is valid for 1 hour.</p>`
+      });
+    res.json({ msg: 'Password reset email sent' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+// Reset password endpoint
+router.post('/reset-password', async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) {
+    return res.status(400).json({ msg: 'Token and new password are required' });
+  }
+  try {
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() }
+    });
+    if (!user) {
+      return res.status(400).json({ msg: 'Invalid or expired token' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ msg: 'Password must be at least 6 characters' });
+    }
+    user.password = await bcrypt.hash(password, 12);
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+    await user.save();
+    res.json({ msg: 'Password has been reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
 // Test GET route for /login
 router.get('/login', (req, res) => {
   res.json({ msg: 'Login endpoint is working (GET)' });

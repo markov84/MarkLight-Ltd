@@ -1,9 +1,16 @@
 import express from 'express';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
-import { auth } from '../utils/auth.js';
+
+import { auth, admin } from '../utils/auth.js';
 import { calculateQuote } from '../utils/shippingRates.js';
 const router = express.Router();
+
+// Admin: get all orders
+router.get('/all', auth, admin, async (req, res) => {
+  const orders = await Order.find({}).populate('items.product user');
+  res.json(orders);
+});
 
 /**
  * Create order (auth required)
